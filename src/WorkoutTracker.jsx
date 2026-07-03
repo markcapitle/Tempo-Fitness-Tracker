@@ -677,7 +677,7 @@ function buildPlan(program, weeks, startDate, daysPerWeek) {
 }
 
 export default function WorkoutTracker() {
-  const [tab, setTab] = useState("programs");
+  const [tab, setTab] = useState("workouts");
   const [loading, setLoading] = useState(true);
   const [workouts, setWorkouts] = useState({});
   const [goals, setGoals] = useState({ short: [], long: [] });
@@ -717,9 +717,12 @@ export default function WorkoutTracker() {
 
   const activeProgram = PROGRAMS.find((p) => p.id === activeProgramId) || null;
   const tabs = [
-    { id: "programs", label: "Programs", icon: ClipboardList }, { id: "calendar", label: "Calendar", icon: Calendar }, { id: "workouts", label: "Workouts", icon: Dumbbell },
+    // { id: "programs", label: "Programs", icon: ClipboardList },
+    // { id: "calendar", label: "Calendar", icon: Calendar },
+    { id: "workouts", label: "Workouts", icon: Dumbbell },
     { id: "notes", label: "Notes", icon: StickyNote },
-    { id: "goals", label: "Goals", icon: Target }, { id: "milestones", label: "Milestones", icon: TrendingUp },
+    { id: "goals", label: "Goals", icon: Target },
+    { id: "milestones", label: "Milestones", icon: TrendingUp },
   ];
 
   return (
@@ -732,7 +735,7 @@ export default function WorkoutTracker() {
           <p className="text-sm text-slate-500 mt-1">Pick a program, log workouts, set goals, and track milestones.</p>
         </header>
 
-        <nav className="grid grid-cols-6 gap-1 bg-white rounded-xl p-1 shadow-sm border border-slate-200 mb-6">
+        <nav className="grid grid-cols-4 gap-1 bg-white rounded-xl p-1 shadow-sm border border-slate-200 mb-6">
           {tabs.map((t) => {
             const Icon = t.icon; const active = tab === t.id;
             return (
@@ -1101,10 +1104,7 @@ function WorkoutsTab({ workouts, update, program, goToPrograms, customExercises,
           )}
         </div>
       ) : (
-        <button onClick={goToPrograms}
-          className="w-full bg-white rounded-xl p-3 shadow-sm border border-dashed border-slate-300 text-sm text-slate-500 hover:border-emerald-300 hover:text-emerald-600 transition flex items-center justify-center gap-2">
-          <ClipboardList size={16} /> Pick a program for one-tap session logging
-        </button>
+       null
       )}
 
       <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
