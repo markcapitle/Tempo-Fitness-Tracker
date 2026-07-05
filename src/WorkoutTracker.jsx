@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Dumbbell, Target, TrendingUp, Plus, Trash2, Check, X,
   Activity, Calendar, Flag, Award, ChevronDown, ChevronUp,
-  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote, Link2, Unlink
+  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote, Link2, Unlink, ListPlus
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, ResponsiveContainer, YAxis, Tooltip, XAxis } from "recharts";
 
@@ -1158,13 +1158,13 @@ function WorkoutsTab({ workouts, update, program, goToPrograms, customExercises,
 
       {dates.length === 0 && <div className="text-center text-slate-400 py-10 text-sm">No workouts logged yet.</div>}
       {dates.map((date) => (
-        <DayCard key={date} date={date} exercises={workouts[date]} onRemove={removeExercise} onRemoveDay={removeDay} onUpdate={updateExercise} onReplaceDay={replaceDay} />
+        <DayCard key={date} date={date} exercises={workouts[date]} onRemove={removeExercise} onRemoveDay={removeDay} onUpdate={updateExercise} onReplaceDay={replaceDay} library={mergedLibrary} onAddCustom={addCustomExercise} />
       ))}
     </div>
   );
 }
 
-function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDay }) {
+function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDay, library, onAddCustom }) {
   const [confirmId, setConfirmId] = useState(null);
   const [confirmDay, setConfirmDay] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -1291,8 +1291,12 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
               <div className="px-4 py-3 bg-slate-50">
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`shrink-0 w-1.5 h-6 rounded-full ${draft.type === "cardio" ? "bg-sky-400" : "bg-emerald-400"}`} />
-                  <input value={draft.name} onChange={(ev) => setDraft({ ...draft, name: ev.target.value })}
-                    className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                  <div className="flex-1 min-w-0">
+                    <ExerciseAutocomplete value={draft.name}
+                      onChange={(v) => setDraft((d) => ({ ...d, name: v }))}
+                      onPickType={(t) => setDraft((d) => ({ ...d, type: t }))}
+                      library={library} cardioSet={CARDIO_SET} onAddCustom={onAddCustom} />
+                  </div>
                   <select value={draft.type} onChange={(ev) => setDraft({ ...draft, type: ev.target.value })}
                     className="px-2 py-1.5 rounded-md border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400">
                     <option value="strength">Strength</option><option value="cardio">Cardio</option>
@@ -1341,7 +1345,7 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => makeSuperset(e)} title="Add a superset exercise" className="text-slate-300 hover:text-emerald-600 transition"><Link2 size={15} /></button>
+                    <button onClick={() => makeSuperset(e)} title="Add a superset exercise" className="text-slate-300 hover:text-emerald-600 transition"><ListPlus size={16} /></button>
                     {e.supersetId && <button onClick={() => unlinkSuperset(e)} title="Remove from superset" className="text-slate-300 hover:text-amber-500 transition"><Unlink size={15} /></button>}
                     <button onClick={() => startEdit(e)} className="text-[11px] text-slate-400 hover:text-emerald-600 transition">Edit</button>
                     <button onClick={() => setConfirmId(e.id)} className="text-slate-300 hover:text-red-500 transition"><Trash2 size={16} /></button>
