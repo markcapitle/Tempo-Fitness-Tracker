@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Dumbbell, Target, TrendingUp, Plus, Trash2, Check, X,
   Activity, Calendar, Flag, Award, ChevronDown, ChevronUp,
-  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote
+  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote, Link2, Unlink
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, ResponsiveContainer, YAxis, Tooltip, XAxis } from "recharts";
 
@@ -67,11 +67,11 @@ function topSet(e) {
 function normalizeExercise(e) {
   if (Array.isArray(e.sets)) {
     const sets = e.sets.length ? e.sets.map((s) => ({ reps: s.reps || "", weight: s.weight || "", rpe: s.rpe || "" })) : [blankSet()];
-    return { id: e.id || uid(), name: e.name, type: e.type || "strength", notes: e.notes || "", sets };
+    return { id: e.id || uid(), name: e.name, type: e.type || "strength", notes: e.notes || "", supersetId: e.supersetId || null, sets };
   }
   const n = Math.max(1, Math.min(parseInt(e.sets) || 1, 12));
   const row = { reps: e.reps || "", weight: e.weight || "", rpe: e.rpe || "" };
-  return { id: e.id || uid(), name: e.name, type: e.type || "strength", notes: e.notes || "", sets: Array.from({ length: n }, () => ({ ...row })) };
+  return { id: e.id || uid(), name: e.name, type: e.type || "strength", notes: e.notes || "", supersetId: e.supersetId || null, sets: Array.from({ length: n }, () => ({ ...row })) };
 }
 function normalizeWorkouts(workouts) {
   const out = {};
@@ -200,6 +200,7 @@ function cardioSeries(workouts, name, from, to, metric) {
 
 // ---------- exercise library ----------
 const STRENGTH_EXERCISES = [
+  "Single-Arm Dumbbell Row", "Single-Arm Overhead Press", "Single-Arm Lat Pulldown", "Single-Arm Dumbbell Bench Press", "Single-Arm Landmine Press", "Single-Arm Kettlebell Swing", "Single-Arm Tricep Pushdown", "Single-Arm Cable Curl", "Single-Arm Dumbbell Curl", "Single-Arm Preacher Curl", "Single-Arm Cable Lateral Raise", "Single-Arm Farmer's Carry", "Decline Sit-Up",
   "Barbell Bench Press", "Incline Barbell Bench Press", "Decline Barbell Bench Press", "Close-Grip Bench Press",
   "Dumbbell Bench Press", "Incline Dumbbell Press", "Decline Dumbbell Press", "Dumbbell Fly", "Incline Dumbbell Fly",
   "Cable Fly", "Cable Crossover", "Low Cable Crossover", "Pec Deck", "Chest Press Machine", "Incline Chest Press Machine",
@@ -259,9 +260,21 @@ function highlightMatch(text, q) {
 
 function ExerciseAutocomplete({ value, onChange, onPickType, library, cardioSet, onAddCustom }) {
   const [focused, setFocused] = useState(false);
+  const norm = (s) => s.toLowerCase().replace(/[\s-]/g, "");
   const q = value.trim().toLowerCase();
-  const matches = q ? library.filter((n) => n.toLowerCase().includes(q)).slice(0, 8) : [];
-  const exact = library.some((n) => n.toLowerCase() === q);
+  const nq = norm(value);
+  const matches = nq
+    ? library
+        .filter((n) => norm(n).includes(nq))
+        .sort((a, b) => {
+          const na = norm(a), nb = norm(b);
+          const aStarts = na.startsWith(nq), bStarts = nb.startsWith(nq);
+          if (aStarts !== bStarts) return aStarts ? -1 : 1; // names that start with the query first
+          return na.length - nb.length;                     // then shorter (base) names before variations
+        })
+        .slice(0, 8)
+    : [];
+  const exact = library.some((n) => norm(n) === nq);
   const showAdd = q.length > 0 && !exact;
   const open = focused && (matches.length > 0 || showAdd);
 
@@ -319,7 +332,7 @@ function SetRows({ sets, type, onUpdate, onAdd, onRemove }) {
             <span className="w-6 h-8 flex items-center justify-center text-[11px] font-semibold text-slate-500 bg-slate-100 rounded shrink-0">{i + 1}</span>
             <input value={s.reps} onChange={(e) => onUpdate(i, "reps", e.target.value)} inputMode="numeric" placeholder="—"
               className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
-            <input value={s.weight} onChange={(e) => onUpdate(i, "weight", e.target.value)} placeholder={type === "cardio" ? "20 min" : "135"}
+            <input value={s.weight} onChange={(e) => onUpdate(i, "weight", e.target.value)} inputMode={type === "cardio" ? "text" : "decimal"} placeholder={type === "cardio" ? "20 min" : "135"}
               className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
             <input value={s.rpe} onChange={(e) => onUpdate(i, "rpe", e.target.value)} inputMode="numeric" placeholder="—"
               className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
@@ -1164,8 +1177,9 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
   const addDraftSet = () => setDraft((d) => ({ ...d, sets: [...d.sets, blankSet()] }));
   const removeDraftSet = (i) => setDraft((d) => ({ ...d, sets: d.sets.length > 1 ? d.sets.filter((_, idx) => idx !== i) : d.sets }));
   const saveEdit = () => {
+    if (!(draft.name || "").trim()) { onRemove(date, editId); setEditId(null); setDraft(null); return; }
     const sets = cleanSets(draft.sets);
-    onUpdate(date, editId, { name: draft.name.trim() || draft.name, type: draft.type, notes: (draft.notes || "").trim(), sets: sets.length ? sets : [blankSet()] });
+    onUpdate(date, editId, { name: draft.name.trim(), type: draft.type, notes: (draft.notes || "").trim(), sets: sets.length ? sets : [blankSet()] });
     setEditId(null); setDraft(null);
   };
 
@@ -1180,6 +1194,27 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
     const cleaned = sessionDraft.map((e) => ({ ...e, name: (e.name || "").trim(), sets: cleanSets(e.sets).length ? cleanSets(e.sets) : [blankSet()] })).filter((e) => e.name !== "");
     onReplaceDay(date, cleaned); setSessionEdit(false); setSessionDraft(null);
   };
+
+  // Superset: link an exercise with one or more partners (a shared supersetId).
+  const makeSuperset = (e) => {
+    const gid = e.supersetId || uid();
+    const idx = exercises.findIndex((x) => x.id === e.id);
+    const partner = { id: uid(), name: "", type: e.type || "strength", notes: "", supersetId: gid, sets: [blankSet()] };
+    const next = exercises.map((x) => x.id === e.id ? { ...x, supersetId: gid } : x);
+    next.splice(idx + 1, 0, partner); // keep group members adjacent
+    onReplaceDay(date, next);
+    setConfirmId(null);
+    startEdit(partner); // open the new slot so you can name it right away
+  };
+  const unlinkSuperset = (e) => onUpdate(date, e.id, { supersetId: null });
+
+  // Group consecutive exercises that share a supersetId into blocks for rendering.
+  const blocks = [];
+  exercises.forEach((e) => {
+    const last = blocks[blocks.length - 1];
+    if (e.supersetId && last && last.ssId === e.supersetId) last.items.push(e);
+    else blocks.push({ ssId: e.supersetId || null, items: [e] });
+  });
 
   const allSets = exercises.reduce((a, e) => a + (e.sets ? e.sets.length : 0), 0);
   const rpes = exercises.flatMap((e) => (e.sets || []).map((s) => parseFloat(s.rpe))).filter((n) => !isNaN(n));
@@ -1248,7 +1283,9 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
         </div>
       </div>
       <div className="divide-y divide-slate-100">
-        {exercises.map((e) => (
+        {blocks.map((block) => {
+          const grouped = block.ssId && block.items.length > 1;
+          const rows = block.items.map((e, mi) => (
           <div key={e.id}>
             {editId === e.id ? (
               <div className="px-4 py-3 bg-slate-50">
@@ -1265,7 +1302,7 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
                 <input value={draft.notes || ""} onChange={(ev) => setDraft({ ...draft, notes: ev.target.value })} placeholder="Note (optional)"
                   className="w-full mt-2 px-2 py-1.5 rounded-md border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
                 <div className="flex gap-2 mt-2 justify-end">
-                  <button onClick={() => { setEditId(null); setDraft(null); }} className="text-xs px-3 py-1.5 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 transition">Cancel</button>
+                  <button onClick={() => { if (!(e.name || "").trim() && !(draft.name || "").trim()) onRemove(date, e.id); setEditId(null); setDraft(null); }} className="text-xs px-3 py-1.5 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 transition">Cancel</button>
                   <button onClick={saveEdit} className="text-xs px-3 py-1.5 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-1"><Check size={13} /> Save</button>
                 </div>
               </div>
@@ -1274,7 +1311,8 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
                 <span className={`shrink-0 w-1.5 h-8 rounded-full mt-0.5 ${e.type === "cardio" ? "bg-sky-400" : "bg-emerald-400"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm text-slate-800 flex items-center gap-2">
-                    {e.name}
+                    {grouped && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1 rounded shrink-0">{`A${mi + 1}`}</span>}
+                    {e.name || <span className="text-slate-400 italic font-normal">Unnamed — tap Edit</span>}
                     <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${e.type === "cardio" ? "bg-sky-100 text-sky-600" : "bg-emerald-100 text-emerald-600"}`}>{e.type}</span>
                   </div>
                   <div className="mt-1 space-y-0.5">
@@ -1302,7 +1340,9 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
                     <button onClick={() => { onRemove(date, e.id); setConfirmId(null); }} className="text-xs px-2 py-1 rounded-md bg-red-500 text-white hover:bg-red-600 transition">Delete</button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => makeSuperset(e)} title="Add a superset exercise" className="text-slate-300 hover:text-emerald-600 transition"><Link2 size={15} /></button>
+                    {e.supersetId && <button onClick={() => unlinkSuperset(e)} title="Remove from superset" className="text-slate-300 hover:text-amber-500 transition"><Unlink size={15} /></button>}
                     <button onClick={() => startEdit(e)} className="text-[11px] text-slate-400 hover:text-emerald-600 transition">Edit</button>
                     <button onClick={() => setConfirmId(e.id)} className="text-slate-300 hover:text-red-500 transition"><Trash2 size={16} /></button>
                   </div>
@@ -1310,7 +1350,14 @@ function DayCard({ date, exercises, onRemove, onRemoveDay, onUpdate, onReplaceDa
               </div>
             )}
           </div>
-        ))}
+          ));
+          return grouped ? (
+            <div key={"ss-" + block.ssId} className="bg-emerald-50/40 border-l-[3px] border-emerald-400">
+              <div className="px-4 pt-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 flex items-center gap-1"><Link2 size={11} /> Superset</div>
+              <div className="divide-y divide-emerald-100">{rows}</div>
+            </div>
+          ) : rows;
+        })}
       </div>
     </div>
   );
