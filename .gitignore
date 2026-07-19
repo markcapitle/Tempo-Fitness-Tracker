@@ -11,3 +11,10 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
