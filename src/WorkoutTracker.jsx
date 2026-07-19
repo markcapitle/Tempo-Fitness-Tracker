@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import {
   Dumbbell, Target, TrendingUp, Plus, Trash2, Check, X,
   Activity, Calendar, Flag, Award, ChevronDown, ChevronUp,
-  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote, Link2, Unlink, ListPlus
+  ClipboardList, Zap, ChevronRight, HeartPulse, Scale, Search, Pencil, StickyNote, Link2, Unlink, ListPlus, LogOut, Cloud
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, ResponsiveContainer, YAxis, Tooltip, XAxis } from "recharts";
+import { supabase } from "./supabaseClient.js";
 
 // ---------- helpers ----------
 const todayStr = () => {
@@ -19,17 +20,86 @@ const fmtDate = (s) => {
 const blankSet = () => ({ reps: "", weight: "", rpe: "" });
 
 // Persistence layer — the loadKey/saveKey "seam".
-// Today it uses the browser's localStorage. To add accounts + cloud sync later,
-// swap the bodies of these two functions for Supabase calls (keyed by user id)
-// and the rest of the app stays untouched.
+// Now backed by Supabase: every value is a row in `user_state`, scoped to the
+// logged-in user (Row Level Security enforces that server-side). The rest of the
+// app is unchanged — it still just calls loadKey/saveKey.
 const STORAGE_PREFIX = "tempo:";
-async function loadKey(key, fallback) {
-  try { const r = localStorage.getItem(STORAGE_PREFIX + key); return r != null ? JSON.parse(r) : fallback; }
-  catch { return fallback; }
+const MIGRATED_FLAG = "tempo:migratedToCloud";
+
+// All the keys the app persists — used by the one-time local -> cloud migration.
+const ALL_KEYS = [
+  "workouts", "goals", "milestones", "bodyweight", "customExercises",
+  "activeProgram", "activePlan", "planHistory", "programOverrides",
+];
+
+async function currentUserId() {
+  const { data } = await supabase.auth.getUser();
+  return data?.user?.id || null;
 }
+
+async function loadKey(key, fallback) {
+  try {
+    const uid = await currentUserId();
+    if (!uid) return fallback;
+    const { data, error } = await supabase
+      .from("user_state").select("value").eq("user_id", uid).eq("key", key).maybeSingle();
+    if (error) { console.error("load failed", key, error.message); return fallback; }
+    return data && data.value != null ? data.value : fallback;
+  } catch (e) { console.error("load failed", key, e); return fallback; }
+}
+
 async function saveKey(key, value) {
-  try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value)); }
-  catch (e) { console.error("save failed", key, e); }
+  try {
+    const uid = await currentUserId();
+    if (!uid) return;
+    const { error } = await supabase
+      .from("user_state")
+      .upsert({ user_id: uid, key, value, updated_at: new Date().toISOString() },
+              { onConflict: "user_id,key" });
+    if (error) console.error("save failed", key, error.message);
+  } catch (e) { console.error("save failed", key, e); }
+}
+
+// One-time migration: if this browser has local data and the cloud account is
+// empty, push the local data up. Runs once per browser, then sets a flag.
+async function migrateLocalToCloud() {
+  try {
+    if (localStorage.getItem(MIGRATED_FLAG)) return { migrated: false, reason: "already-done" };
+    const uid = await currentUserId();
+    if (!uid) return { migrated: false, reason: "no-user" };
+
+    // Gather whatever this browser has stored locally.
+    const local = {};
+    ALL_KEYS.forEach((k) => {
+      const raw = localStorage.getItem(STORAGE_PREFIX + k);
+      if (raw != null) { try { local[k] = JSON.parse(raw); } catch { /* skip bad json */ } }
+    });
+    if (Object.keys(local).length === 0) {
+      localStorage.setItem(MIGRATED_FLAG, "1");
+      return { migrated: false, reason: "nothing-local" };
+    }
+
+    // Don't clobber a cloud account that already has data.
+    const { data: existing, error: exErr } = await supabase
+      .from("user_state").select("key").eq("user_id", uid).limit(1);
+    if (exErr) return { migrated: false, reason: exErr.message };
+    if (existing && existing.length > 0) {
+      localStorage.setItem(MIGRATED_FLAG, "1");
+      return { migrated: false, reason: "cloud-not-empty" };
+    }
+
+    const rows = Object.entries(local).map(([key, value]) => ({
+      user_id: uid, key, value, updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from("user_state").upsert(rows, { onConflict: "user_id,key" });
+    if (error) { console.error("migration failed", error.message); return { migrated: false, reason: error.message }; }
+
+    localStorage.setItem(MIGRATED_FLAG, "1");
+    return { migrated: true, count: rows.length };
+  } catch (e) {
+    console.error("migration failed", e);
+    return { migrated: false, reason: String(e) };
+  }
 }
 
 // ---------- exercise / set helpers ----------
@@ -700,14 +770,20 @@ export default function WorkoutTracker() {
   const [activeProgramId, setActiveProgramId] = useState(null);
   const [activePlan, setActivePlan] = useState(null);
   const [planHistory, setPlanHistory] = useState([]);
+  const [migrationNote, setMigrationNote] = useState("");
+  const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
     (async () => {
+      const mig = await migrateLocalToCloud(); // one-time local -> cloud copy
+      if (mig.migrated) setMigrationNote(`Moved ${mig.count} saved items to your account.`);
       const [w, g, m, bw, ce, p, pl, ph] = await Promise.all([
         loadKey("workouts", {}), loadKey("goals", { short: [], long: [] }), loadKey("milestones", []),
         loadKey("bodyweight", []), loadKey("customExercises", []), loadKey("activeProgram", null), loadKey("activePlan", null), loadKey("planHistory", []),
       ]);
       setWorkouts(normalizeWorkouts(w)); setGoals(g); setMilestones(m); setBodyweight(bw); setCustomExercises(ce); setActiveProgramId(p); setActivePlan(pl); setPlanHistory(ph);
+      const { data: u } = await supabase.auth.getUser();
+      setUserEmail(u?.user?.email || "");
       setLoading(false);
     })();
   }, []);
@@ -742,10 +818,26 @@ export default function WorkoutTracker() {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
       <div className="max-w-3xl mx-auto p-4 sm:p-6">
         <header className="mb-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900">
-            <span className="bg-emerald-500 text-white p-2 rounded-xl"><Activity size={22} /></span> The Workout Tracker
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">Pick a program, log workouts, set goals, and track milestones.</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900">
+                <span className="bg-emerald-500 text-white p-2 rounded-xl"><Activity size={22} /></span> The Workout Tracker
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">Pick a program, log workouts, set goals, and track milestones.</p>
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              {userEmail && <span className="text-[11px] text-slate-400 truncate max-w-[140px]" title={userEmail}>{userEmail}</span>}
+              <button onClick={() => supabase.auth.signOut()}
+                className="text-[11px] flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                <LogOut size={12} /> Log out
+              </button>
+            </div>
+          </div>
+          {migrationNote && (
+            <div className="mt-3 text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2 flex items-center gap-2">
+              <Cloud size={14} className="shrink-0" /> {migrationNote}
+            </div>
+          )}
         </header>
 
         <nav className="grid grid-cols-4 gap-1 bg-white rounded-xl p-1 shadow-sm border border-slate-200 mb-6">
